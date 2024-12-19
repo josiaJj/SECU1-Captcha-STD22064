@@ -3,83 +3,85 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SECU1 Captcha - STD22064</title>
+    <title>SECU1 Captcha STD22064</title>
     <script type="text/javascript" src="https://b82b1763d1c3.eu-west-3.captcha-sdk.awswaf.com/b82b1763d1c3/jsapi.js" defer></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
-        #result {
-            margin-top: 20px;
-            white-space: pre-wrap;
-        }
-    </style>
 </head>
 <body>
-    <h1>SECU1 Captcha - STD22064</h1>
-    <form id="numberForm">
-        <label for="number">Entrer un nombre entre 1 à 1000 :</label>
-        <input type="number" id="number" name="number" min="1" max="1000" required>
-        <button type="submit">Entrer</button>
-    </form>
+    <div id="app">
+        <h1>SECU1 Captcha STD22064</h1>
+        <form id="number-form">
+            <label for="number">Entrer un nombre entre 1 et 1000 :</label>
+            <input type="number" id="number" name="number" min="1" max="1000" required>
+            <button type="submit">Submit</button>
+        </form>
 
-    <div id="result"></div>
+        <div id="sequence-output" style="display:none;"></div>
+        <div id="my-captcha-container" style="display:none;"></div>
+    </div>
 
     <script>
-        const apiURL = 'https://api.prod.jcloudify.com/whoami';
-        let stopSequence = false;
+        const apiUrl = "https://api.prod.jcloudify.com/whoami";
+        const sequenceOutput = document.getElementById('sequence-output');
+        const form = document.getElementById('number-form');
+        const captchaContainer = document.getElementById('my-captcha-container');
+        let wafToken = null;
 
-        document.getElementById('numberForm').addEventListener('submit', async (event) => {
-            event.preventDefault();
-            const number = parseInt(document.getElementById('number').value, 10);
-            if (isNaN(number) || number < 1 || number > 1000) {
-                alert('Please enter a valid number between 1 and 1000.');
-                return;
-            }
-
-            const resultDiv = document.getElementById('result');
-            resultDiv.innerHTML = '';
-            document.getElementById('numberForm').style.display = 'none';
-
-            for (let i = 1; i <= number; i++) {
-                if (stopSequence) break;
-                try {
-                    const response = await fetch(apiURL);
-                    if (response.ok) {
-                        resultDiv.innerText += `${i}. Success\n`;
-                    } else if (response.status === 403) {
-                        const data = await response.json();
-                        if (data.type === '403 FORBIDDEN') {
-                            resultDiv.innerText += `${i}. Forbidden\n`;
-                        } else if (data.type === 'CAPTCHA_REQUIRED') {
-                            const captchaCode = prompt('CAPTCHA detected! Please solve it:');
-                            await submitCaptcha(captchaCode);
-                            i--; // Retry the same request after solving CAPTCHA
-                        }
-                    } else {
-                        resultDiv.innerText += `${i}. Error\n`;
-                    }
-                } catch (error) {
-                    resultDiv.innerText += `${i}. Network Error\n`;
-                }
-
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-
-            if (!stopSequence) {
-                alert('Sequence complete!');
-            }
-        });
-
-        async function submitCaptcha(captchaCode) {
-            // Simulate CAPTCHA submission
-            await fetch(apiURL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ captcha: captchaCode })
+        function showCaptcha(callback) {
+            captchaContainer.style.display = "block";
+            AwsWafCaptcha.renderCaptcha(captchaContainer, {
+                apiKey: window.WAF_API_KEY,
+                onSuccess: (token) => {
+                    wafToken = token;
+                    captchaContainer.style.display = "none";
+                    callback();
+                },
+                onError: (error) => {
+                    console.error("Captcha Error:", error);
+                },
             });
         }
+
+        // Function to fetch data and handle CAPTCHA when encountered
+        async function fetchForbidden(index, max, delay, callback) {
+            try {
+                const options = wafToken ? { headers: { 'Authorization': `Bearer ${wafToken}` } } : {};
+                const response = await fetch(apiUrl, options);
+
+                if (response.status === 403) {
+                    const data = await response.json();
+                    if (data.message === "Captcha required") {
+                        showCaptcha(() => fetchForbidden(index, max, delay, callback));
+                        return;
+                    }
+                }
+
+                sequenceOutput.innerHTML += `<p>${index + 1}. Forbidden</p>`;
+
+                if (index + 1 < max) {
+                    setTimeout(() => fetchForbidden(index + 1, max, delay, callback), delay);
+                } else if (callback) {
+                    callback();
+                }
+            } catch (error) {
+                console.error("Error fetching forbidden sequence:", error);
+            }
+        }
+
+        // Handle form submission
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const number = parseInt(document.getElementById('number').value, 10);
+
+            if (number >= 1 && number <= 1000) {
+                form.style.display = "none";
+                sequenceOutput.style.display = "block";
+                fetchForbidden(0, number, 1000, () => {
+                    console.log("Sequence complete.");
+                });
+            } else {
+                alert("Please enter a number between 1 and 1000.");
+            }
+        });
     </script>
 </body>
 </html>
